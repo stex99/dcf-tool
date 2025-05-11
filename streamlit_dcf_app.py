@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -10,12 +11,16 @@ def get_fcf(ticker):
     try:
         stock = yf.Ticker(ticker)
         cf = stock.cashflow
-        if cf is None or 'Total Cash From Operating Activities' not in cf or 'Capital Expenditures' not in cf:
+        if cf is None or cf.empty:
+            st.warning(f"No cash flow data for {ticker}")
             return None
         ocf = cf.loc['Total Cash From Operating Activities'].iloc[0]
         capex = cf.loc['Capital Expenditures'].iloc[0]
-        return ocf + capex
-    except:
+        fcf = ocf + capex
+        st.write(f"{ticker} FCF: OCF={ocf}, CapEx={capex}, FCF={fcf}")
+        return fcf
+    except Exception as e:
+        st.warning(f"Error retrieving FCF for {ticker}: {e}")
         return None
 
 def dcf_valuation(fcf, discount_rate=0.10, growth_rate=0.05, projection_years=5):
@@ -31,7 +36,7 @@ def dcf_valuation(fcf, discount_rate=0.10, growth_rate=0.05, projection_years=5)
 
 def valuation_flag(dcf, market, tolerance=0.1):
     if not dcf or not market:
-        return "N/A"
+        return None
     diff = (dcf - market) / market
     if diff > tolerance:
         return "Undervalued"
@@ -54,32 +59,30 @@ def analyze_portfolio(df, discount_rate, growth_rate, projection_years):
         shares_outstanding = stock.info.get("sharesOutstanding", None)
         current_price = stock.info.get("currentPrice", None)
 
-        if intrinsic_value and shares_outstanding:
-            dcf_per_share = intrinsic_value / shares_outstanding
-            holding_value = dcf_per_share * shares
-        else:
-            dcf_per_share = None
-            holding_value = None
+        if not shares_outstanding:
+            st.warning(f"{ticker}: Missing 'sharesOutstanding' in yfinance data.")
+
+        value_per_share = (intrinsic_value / shares_outstanding) if intrinsic_value and shares_outstanding else None
+        holding_value = value_per_share * shares if value_per_share else None
 
         if holding_value:
             total_value += holding_value
 
-        flag = valuation_flag(dcf_per_share, current_price)
+        flag = valuation_flag(value_per_share, current_price)
 
         results.append({
             "Ticker": ticker,
             "Shares": shares,
-            "DCF Value per Share ($)": round(dcf_per_share, 2) if dcf_per_share else "N/A",
-            "Market Price ($)": round(current_price, 2) if current_price else "N/A",
-            "Difference ($)": round((dcf_per_share - current_price), 2) if dcf_per_share and current_price else "N/A",
-            "Upside/Downside (%)": round(((dcf_per_share - current_price) / current_price * 100), 2) if dcf_per_share and current_price else "N/A",
+            "DCF Value per Share ($)": round(value_per_share, 2) if value_per_share else None,
+            "Market Price ($)": round(current_price, 2) if current_price else None,
+            "Difference ($)": round((value_per_share - current_price), 2) if value_per_share and current_price else None,
+            "Upside/Downside (%)": round(((value_per_share - current_price) / current_price * 100), 2) if value_per_share and current_price else None,
             "Valuation": flag,
-            "Estimated Holding Value ($)": round(holding_value, 2) if holding_value else "N/A"
+            "Estimated Holding Value ($)": round(holding_value, 2) if holding_value else None
         })
 
     return pd.DataFrame(results), total_value
 
-# Streamlit UI
 st.title("📈 DCF Portfolio Analyzer")
 
 st.sidebar.header("DCF Settings")
@@ -89,36 +92,25 @@ projection_years = st.sidebar.slider("Projection Period (Years)", 1, 10, 5, 1)
 
 uploaded_file = st.file_uploader("Upload Portfolio CSV", type=["csv"])
 
-st.markdown("""
-**Upload Format:**  
-A `.csv` file with at least two columns:
-- `Ticker` (e.g., AAPL)
-- `Shares` (e.g., 10)
-""")
-
 if uploaded_file:
     try:
         portfolio_df = pd.read_csv(uploaded_file)
         if 'Ticker' not in portfolio_df.columns or 'Shares' not in portfolio_df.columns:
             st.error("CSV must include 'Ticker' and 'Shares' columns.")
         else:
-            with st.spinner("Performing DCF analysis..."):
-                results_df, total_estimate = analyze_portfolio(
-                    portfolio_df, discount_rate, growth_rate, projection_years
-                )
+            with st.spinner("Analyzing portfolio..."):
+                results_df, total_estimate = analyze_portfolio(portfolio_df, discount_rate, growth_rate, projection_years)
 
-            st.success("Analysis complete!")
-            st.dataframe(results_df, use_container_width=True)
+            display_df = results_df.fillna("N/A")
+            st.dataframe(display_df, use_container_width=True)
             st.subheader(f"💰 Estimated Total Portfolio Value: ${round(total_estimate, 2)}")
 
-            # Export button
-            csv_export = results_df.to_csv(index=False).encode("utf-8")
+            csv_export = display_df.to_csv(index=False).encode("utf-8")
             st.download_button("📥 Download CSV", csv_export, "dcf_results.csv", "text/csv")
 
-            # Chart
-            chart_df = results_df[
-                (results_df["DCF Value per Share ($)"] != "N/A") &
-                (results_df["Market Price ($)"] != "N/A")
+            chart_df = display_df[
+                (display_df["DCF Value per Share ($)"] != "N/A") &
+                (display_df["Market Price ($)"] != "N/A")
             ].copy()
 
             chart_df["DCF Value per Share ($)"] = pd.to_numeric(chart_df["DCF Value per Share ($)"])
