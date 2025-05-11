@@ -193,7 +193,10 @@ if uploaded_file:
 
             # Superimpose market price
             current_prices = chart_df[["Ticker", "Market Price ($)"]].drop_duplicates()
-            latest_year = max(dcf_trend_df["Year"].unique())
+            
+if not dcf_trend_df.empty and "Year" in dcf_trend_df.columns:
+    latest_year = max(dcf_trend_df["Year"].unique())
+
 
             price_overlay_data = pd.DataFrame([{
                 "Ticker": row["Ticker"],
@@ -221,6 +224,10 @@ if uploaded_file:
                 title="Historical DCF with Market Price Overlay"
             )
 
-            st.altair_chart(super_chart, use_container_width=True)
+            
+    st.altair_chart(super_chart, use_container_width=True)
+else:
+    st.info("No historical DCF data available for charting.")
+
     except Exception as e:
         st.error(f"Something went wrong: {e}")
