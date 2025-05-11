@@ -50,6 +50,7 @@ def get_fcf(ticker):
         return fcf
 
     except Exception as e:
+        st.error(f"Something went wrong: {e}")
         msg = f"Error retrieving FCF for {ticker}: {e}"
         st.warning(msg)
         log_entries.append(msg)
@@ -182,4 +183,5 @@ if uploaded_file:
     
             st.altair_chart(chart, use_container_width=True)
     except Exception as e:
+        st.error(f"Something went wrong: {e}")
         st.error(f"Something went wrong: {e}")
