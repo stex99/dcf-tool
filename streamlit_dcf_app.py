@@ -170,6 +170,25 @@ if uploaded_file:
                 cf = stock.cashflow
                 shares_outstanding = stock.info.get("sharesOutstanding", None)
 
+                try:
+                    if cf is not None and not cf.empty and shares_outstanding:
+                        years = list(cf.columns)[:5]
+                        for year in years:
+                            ocf = cf.loc["Total Cash From Operating Activities"][year] if "Total Cash From Operating Activities" in cf.index else None
+                            capex = cf.loc["Capital Expenditures"][year] if "Capital Expenditures" in cf.index else None
+                            if ocf and capex:
+                                fcf = ocf + capex
+                                dcf_value = fcf * 1.05 / (0.10 - 0.05)
+                                dcf_per_share = dcf_value / shares_outstanding
+                                dcf_trend_data.append({
+                                    "Ticker": ticker,
+                                    "Year": str(year.year) if hasattr(year, 'year') else str(year),
+                                    "DCF": round(dcf_per_share, 2)
+                                })
+                except Exception as e:
+                    st.warning(f"Failed historical DCF for {ticker}: {e}")
+                    continue
+
                 if cf is not None and not cf.empty and shares_outstanding:
                     try:
                         years = list(cf.columns)[:5]
@@ -193,10 +212,7 @@ if uploaded_file:
 
             # Superimpose market price
             current_prices = chart_df[["Ticker", "Market Price ($)"]].drop_duplicates()
-            
-if not dcf_trend_df.empty and "Year" in dcf_trend_df.columns:
-    latest_year = max(dcf_trend_df["Year"].unique())
-
+            latest_year = max(dcf_trend_df["Year"].unique())
 
             price_overlay_data = pd.DataFrame([{
                 "Ticker": row["Ticker"],
@@ -224,10 +240,6 @@ if not dcf_trend_df.empty and "Year" in dcf_trend_df.columns:
                 title="Historical DCF with Market Price Overlay"
             )
 
-            
-    st.altair_chart(super_chart, use_container_width=True)
-else:
-    st.info("No historical DCF data available for charting.")
-
+            st.altair_chart(super_chart, use_container_width=True)
     except Exception as e:
         st.error(f"Something went wrong: {e}")
