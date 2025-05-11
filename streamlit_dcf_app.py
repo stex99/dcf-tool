@@ -8,7 +8,7 @@ from io import StringIO
 
 st.set_page_config(page_title="DCF Portfolio Analyzer", layout="wide")
 
-log_entries = []  # Global log collector
+log_entries = []
 
 def get_fcf(ticker):
     try:
@@ -124,7 +124,6 @@ projection_years = st.sidebar.slider("Projection Period (Years)", 1, 10, 5, 1)
 
 uploaded_file = st.file_uploader("Upload Portfolio CSV", type=["csv"])
 
-# Fallback sample data
 if uploaded_file is None:
     st.info("No file uploaded. Using example portfolio.")
     uploaded_file = StringIO("""Ticker,Shares
@@ -155,6 +154,7 @@ if uploaded_file:
                 log_output = "\n".join(log_entries)
                 st.download_button("📄 Download Log File", log_output, "dcf_log.txt")
 
+            # Charts
             chart_df = display_df[
                 (display_df["DCF Value per Share ($)"] != "N/A") &
                 (display_df["Market Price ($)"] != "N/A")
@@ -163,138 +163,64 @@ if uploaded_file:
             chart_df["DCF Value per Share ($)"] = pd.to_numeric(chart_df["DCF Value per Share ($)"])
             chart_df["Market Price ($)"] = pd.to_numeric(chart_df["Market Price ($)"])
 
-            chart_data = chart_df.melt(
-                id_vars="Ticker",
-                value_vars=["DCF Value per Share ($)", "Market Price ($)"],
-                var_name="Type",
-                value_name="Price"
-            )
-
-            st.subheader("📊 DCF vs. Market Price")
-            chart = alt.Chart(chart_data).mark_bar().encode(
-                x=alt.X('Ticker:N'),
-                y=alt.Y('Price:Q'),
-                color='Type:N',
-                column='Type:N'
-            ).properties(height=300).configure_axis(labelAngle=0)
-
-            
-            # Enhanced Chart with historical DCF trend simulation
-            chart_df["Ticker"] = chart_df["Ticker"].astype(str)
-            st.subheader("📊 DCF vs. Market Price (with historical DCF estimate)")
-
-            
-            # Real Historical DCF Trend using yfinance financials
+            # Historical DCF trend
             dcf_trend_data = []
             for ticker in chart_df["Ticker"].unique():
                 stock = yf.Ticker(ticker)
-                try:
-                    cf = stock.cashflow
-                    shares_outstanding = stock.info.get("sharesOutstanding", None)
-                    if cf is not None and not cf.empty and shares_outstanding:
-        try:
-            years = list(cf.columns)[:5]  # Get up to 5 recent periods
-            for year in years:
-                ocf = cf.loc["Total Cash From Operating Activities"][year] if "Total Cash From Operating Activities" in cf.index else None
-                capex = cf.loc["Capital Expenditures"][year] if "Capital Expenditures" in cf.index else None
-                if ocf and capex:
-                    fcf = ocf + capex
-                    dcf_value = fcf * 1.05 / (0.10 - 0.05)  # constant growth DCF assumption
-                    dcf_per_share = dcf_value / shares_outstanding
-                    dcf_trend_data.append({
-                        "Ticker": ticker,
-                        "Year": str(year.year) if hasattr(year, 'year') else str(year),
-                        "DCF": round(dcf_per_share, 2)
-                    })
-        except Exception as e:
-            st.warning(f"Failed historical DCF for {ticker}: {e}")
-            continue
-                        years = list(cf.columns)[:5]  # Get up to 5 recent periods
+                cf = stock.cashflow
+                shares_outstanding = stock.info.get("sharesOutstanding", None)
+
+                if cf is not None and not cf.empty and shares_outstanding:
+                    try:
+                        years = list(cf.columns)[:5]
                         for year in years:
                             ocf = cf.loc["Total Cash From Operating Activities"][year] if "Total Cash From Operating Activities" in cf.index else None
                             capex = cf.loc["Capital Expenditures"][year] if "Capital Expenditures" in cf.index else None
                             if ocf and capex:
                                 fcf = ocf + capex
-                                dcf_value = fcf * 1.05 / (0.10 - 0.05)  # constant growth DCF assumption
+                                dcf_value = fcf * 1.05 / (0.10 - 0.05)
                                 dcf_per_share = dcf_value / shares_outstanding
                                 dcf_trend_data.append({
                                     "Ticker": ticker,
                                     "Year": str(year.year) if hasattr(year, 'year') else str(year),
                                     "DCF": round(dcf_per_share, 2)
                                 })
-                        except Exception as e:
-                    st.warning(f"Failed historical DCF for {ticker}: {e}")
-                                continue
-
-            dcf_trend_data = []
-            for ticker in chart_df["Ticker"].unique():
-                dcf = chart_df[chart_df["Ticker"] == ticker]["DCF Value per Share ($)"].values[0]
-                for i in range(-4, 1):  # 5 periods including current
-                    year = f"{2025+i}"
-                    factor = 1 - 0.05 * (4 - i)  # backward simulate ~5% YoY contraction
-                    dcf_trend_data.append({
-                        "Ticker": ticker,
-                        "Year": year,
-                        "DCF": round(dcf * factor, 2)
-                    })
+                    except Exception as e:
+                        st.warning(f"Failed historical DCF for {ticker}: {e}")
+                        continue
 
             dcf_trend_df = pd.DataFrame(dcf_trend_data)
 
-            line_chart = alt.Chart(dcf_trend_df).mark_line(point=True).encode(
-                x="Year:O",
-                y=alt.Y("DCF:Q", title="DCF Value ($)"),
-                color="Ticker:N",
-                tooltip=["Ticker", "Year", "DCF"]
-            ).properties(title="Simulated Historical DCF Trend", height=300)
-
-            st.altair_chart(line_chart, use_container_width=True)
-
-            
-            # Updated Bar Chart with DCF and Market Price as superimposed lines
+            # Superimpose market price
             current_prices = chart_df[["Ticker", "Market Price ($)"]].drop_duplicates()
             latest_year = max(dcf_trend_df["Year"].unique())
 
             price_overlay_data = pd.DataFrame([{
                 "Ticker": row["Ticker"],
                 "Year": latest_year,
-                "Price": row["Market Price ($)"]
+                "Value": row["Market Price ($)"],
+                "Type": "Market Price"
             } for _, row in current_prices.iterrows()])
 
-            combined_trend_df = dcf_trend_df.rename(columns={"DCF": "Value"})
-            price_overlay_df = price_overlay_data.rename(columns={"Price": "Value"})
-            price_overlay_df["Type"] = "Market Price"
-            combined_trend_df["Type"] = "Historical DCF"
+            dcf_trend_df["Value"] = dcf_trend_df["DCF"]
+            dcf_trend_df["Type"] = "Historical DCF"
+            trend_combined = pd.concat([dcf_trend_df[["Ticker", "Year", "Value", "Type"]], price_overlay_data])
 
-            trend_combined = pd.concat([combined_trend_df, price_overlay_df], ignore_index=True)
-
-            
-line = alt.Chart(trend_combined).mark_line(point=True).encode(
-
+            line = alt.Chart(trend_combined).mark_line(point=True).encode(
                 x=alt.X("Year:O", title="Year"),
                 y=alt.Y("Value:Q", title="Per Share Value ($)"),
                 color=alt.Color("Type:N"),
                 strokeDash='Type:N',
                 tooltip=["Ticker", "Year", "Type", "Value"]
-            ).facet(column="Ticker:N").properties(title="Historical DCF with Current Market Price", height=300)
+            )
 
-            
-super_chart = alt.FacetChart(
-    data=trend_combined,
-    facet=alt.Facet("Ticker:N", columns=3),
-    spec=line.properties(height=300),
-    title="Historical DCF with Market Price Overlay"
-)
-st.altair_chart(super_chart, use_container_width=True)
+            super_chart = alt.FacetChart(
+                data=trend_combined,
+                facet=alt.Facet("Ticker:N", columns=3),
+                spec=line.properties(height=300),
+                title="Historical DCF with Market Price Overlay"
+            )
 
-
-            bar_chart = alt.Chart(chart_data).mark_bar().encode(
-                x=alt.X('Ticker:N', title="Ticker"),
-                y=alt.Y('Price:Q', title="Price ($)"),
-                color='Type:N',
-                tooltip=['Ticker', 'Type', 'Price']
-            ).properties(title="Current DCF vs. Market Price", height=300)
-
-            st.altair_chart(bar_chart, use_container_width=True)
-
+            st.altair_chart(super_chart, use_container_width=True)
     except Exception as e:
         st.error(f"Something went wrong: {e}")
