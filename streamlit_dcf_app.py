@@ -30,24 +30,24 @@ def get_fcf(ticker):
 
     return ocf + capex
 
-def dcf_valuation(fcf, discount_rate=0.10, growth_rate=0.05, projection_years=5):
+def dcf_valuation(fcf, discount_rate=0.10, growth_rate=0.05, projection_years=5, terminal_growth=0.025):
     if fcf is None or fcf <= 0:
         return None
     npv = sum(
         fcf * (1 + growth_rate) ** year / (1 + discount_rate) ** year
         for year in range(1, projection_years + 1)
     )
-    terminal_value = (fcf * (1 + growth_rate) ** projection_years) * (1 + growth_rate) / (discount_rate - growth_rate)
+    terminal_value = (fcf * (1 + growth_rate) ** projection_years) * (1 + terminal_growth) / (discount_rate - terminal_growth)
     terminal_value_discounted = terminal_value / (1 + discount_rate) ** projection_years
     return npv + terminal_value_discounted
 
-def analyze_portfolio(df, discount_rate, growth_rate, projection_years):
+def analyze_portfolio(df, discount_rate, growth_rate, projection_years, terminal_growth):
     results = []
     for _, row in df.iterrows():
         ticker = row['Ticker']
         shares = row['Shares']
         fcf = get_fcf(ticker)
-        intrinsic_value = dcf_valuation(fcf, discount_rate, growth_rate, projection_years)
+        intrinsic_value = dcf_valuation(fcf, discount_rate, growth_rate, projection_years, terminal_growth)
 
         stock = yf.Ticker(ticker)
         shares_outstanding = stock.info.get("sharesOutstanding", None)
@@ -67,9 +67,19 @@ def analyze_portfolio(df, discount_rate, growth_rate, projection_years):
 st.title("📈 DCF Portfolio Analyzer")
 
 st.sidebar.header("DCF Settings")
-discount_rate = st.sidebar.slider("Discount Rate (%)", 5.0, 15.0, 10.0, 0.25) / 100
-growth_rate = st.sidebar.slider("Growth Rate (%)", 0.0, 20.0, 5.0, 0.25) / 100
-projection_years = st.sidebar.slider("Projection Period (Years)", 1, 10, 5, 1)
+
+# Add Reset button
+reset = st.sidebar.button("🔄 Reset to Defaults")
+discount_rate_default = 10.0
+discount_rate = st.sidebar.slider("Discount Rate (%)", 5.0, 15.0, discount_rate_default if not reset else 10.0, 0.25) / 100
+st.sidebar.caption("🔻 Discount Rate: Reflects risk and required return. Higher = lower valuation.")
+growth_rate = st.sidebar.slider("Growth Rate (%)", 0.0, 20.0, 5.0 if not reset else 5.0, 0.25) / 100
+st.sidebar.caption("📈 Growth Rate: Expected annual increase in Free Cash Flow.")
+projection_years = st.sidebar.slider("Projection Period (Years)", 1, 10, 5 if not reset else 5, 1)
+st.sidebar.caption("📆 Projection Period: Number of years to forecast before terminal value.")
+terminal_growth = st.sidebar.slider("Terminal Growth Rate (%)", 0.0, 6.0, 2.5 if not reset else 2.5, 0.1) / 100
+st.sidebar.caption("📊 Terminal Growth Rate: Long-term FCF growth after forecast period.")
+st.sidebar.caption("📆 Projection Period: Number of years to forecast before terminal value.")
 
 uploaded_file = st.file_uploader("Upload Portfolio CSV", type=["csv"])
 
@@ -88,7 +98,7 @@ portfolio_df = pd.read_csv(uploaded_file)
 if 'Ticker' not in portfolio_df.columns or 'Shares' not in portfolio_df.columns:
     st.error("CSV must include 'Ticker' and 'Shares' columns.")
 else:
-    results_df = analyze_portfolio(portfolio_df, discount_rate, growth_rate, projection_years)
+    results_df = analyze_portfolio(portfolio_df, discount_rate, growth_rate, projection_years, terminal_growth)
     display_df = results_df.dropna()
     st.dataframe(display_df, use_container_width=True)
 
