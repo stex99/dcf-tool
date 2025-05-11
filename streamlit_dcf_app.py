@@ -7,7 +7,32 @@ import altair as alt
 
 st.set_page_config(page_title="DCF Portfolio Analyzer", layout="wide")
 
+
 def get_fcf(ticker):
+    try:
+        stock = yf.Ticker(ticker)
+        cf = stock.cashflow
+
+        if cf is None or cf.empty:
+            st.warning(f"No cash flow data available for {ticker}")
+            return None
+
+        st.write(f"{ticker} cashflow index: {list(cf.index)}")
+
+        ocf = cf.loc['Total Cash From Operating Activities'].iloc[0] if 'Total Cash From Operating Activities' in cf.index else None
+        capex = cf.loc['Capital Expenditures'].iloc[0] if 'Capital Expenditures' in cf.index else None
+
+        if ocf is None or capex is None:
+            st.warning(f"{ticker} missing OCF or CapEx")
+            return None
+
+        fcf = ocf + capex
+        st.write(f"{ticker} FCF = {fcf}")
+        return fcf
+    except Exception as e:
+        st.warning(f"Error retrieving FCF for {ticker}: {e}")
+        return None
+
     try:
         stock = yf.Ticker(ticker)
         cf = stock.cashflow
