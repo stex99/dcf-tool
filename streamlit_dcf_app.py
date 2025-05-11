@@ -8,7 +8,88 @@ import altair as alt
 st.set_page_config(page_title="DCF Portfolio Analyzer", layout="wide")
 
 
+
+
+log_entries = []  # Global list to collect logs
+
 def get_fcf(ticker):
+    try:
+        stock = yf.Ticker(ticker)
+        cf = stock.cashflow
+
+        if cf is None or cf.empty:
+            msg = f"No cash flow data available for {ticker}"
+            st.warning(msg)
+            log_entries.append(msg)
+            return None
+
+        st.write(f"{ticker} cashflow index: {list(cf.index)}")
+
+        def find_label(possible_labels):
+            for label in possible_labels:
+                for idx in cf.index:
+                    if label.lower() in idx.lower():
+                        return cf.loc[idx].iloc[0]
+            return None
+
+        ocf = find_label(['Total Cash From Operating Activities', 'Operating Cash Flow'])
+        capex = find_label(['Capital Expenditures', 'Capital Expenditures - Fixed Assets'])
+
+        if ocf is None or capex is None:
+            fallback_fcf = stock.info.get("freeCashflow", None)
+            if fallback_fcf:
+                msg = f"{ticker}: Used fallback FCF from summary: {fallback_fcf}"
+                st.info(msg)
+                log_entries.append(msg)
+                return fallback_fcf
+            else:
+                msg = f"{ticker} missing OCF or CapEx and no fallback FCF available"
+                st.warning(msg)
+                log_entries.append(msg)
+                return None
+
+        fcf = ocf + capex
+        msg = f"{ticker} FCF = {fcf}"
+        st.write(msg)
+        log_entries.append(msg)
+        return fcf
+    except Exception as e:
+        msg = f"Error retrieving FCF for {ticker}: {e}"
+        st.warning(msg)
+        log_entries.append(msg)
+        return None
+
+    try:
+        stock = yf.Ticker(ticker)
+        cf = stock.cashflow
+
+        if cf is None or cf.empty:
+            st.warning(f"No cash flow data available for {ticker}")
+            return None
+
+        st.write(f"{ticker} cashflow index: {list(cf.index)}")
+
+        def find_label(possible_labels):
+            for label in possible_labels:
+                for idx in cf.index:
+                    if label.lower() in idx.lower():
+                        return cf.loc[idx].iloc[0]
+            return None
+
+        ocf = find_label(['Total Cash From Operating Activities', 'Operating Cash Flow'])
+        capex = find_label(['Capital Expenditures', 'Capital Expenditures - Fixed Assets'])
+
+        if ocf is None or capex is None:
+            st.warning(f"{ticker} missing OCF or CapEx (labels tried)")
+            return None
+
+        fcf = ocf + capex
+        st.write(f"{ticker} FCF = {fcf}")
+        return fcf
+    except Exception as e:
+        st.warning(f"Error retrieving FCF for {ticker}: {e}")
+        return None
+
     try:
         stock = yf.Ticker(ticker)
         cf = stock.cashflow
@@ -142,7 +223,14 @@ if uploaded_file:
 
             display_df = results_df.fillna("N/A")
             st.dataframe(display_df, use_container_width=True)
-            st.subheader(f"💰 Estimated Total Portfolio Value: ${round(total_estimate, 2)}")
+            
+st.subheader(f"💰 Estimated Total Portfolio Value: ${round(total_estimate, 2)}")
+
+# Add log download
+if log_entries:
+    log_output = "\n".join(log_entries)
+    st.download_button("📄 Download Log File", log_output, "dcf_log.txt")
+
 
             csv_export = display_df.to_csv(index=False).encode("utf-8")
             st.download_button("📥 Download CSV", csv_export, "dcf_results.csv", "text/csv")
