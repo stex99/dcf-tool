@@ -232,7 +232,34 @@ if uploaded_file:
 
             st.altair_chart(line_chart, use_container_width=True)
 
-            # Updated Bar Chart with both DCF and Market Price
+            
+            # Updated Bar Chart with DCF and Market Price as superimposed lines
+            current_prices = chart_df[["Ticker", "Market Price ($)"]].drop_duplicates()
+            latest_year = max(dcf_trend_df["Year"].unique())
+
+            price_overlay_data = pd.DataFrame([{
+                "Ticker": row["Ticker"],
+                "Year": latest_year,
+                "Price": row["Market Price ($)"]
+            } for _, row in current_prices.iterrows()])
+
+            combined_trend_df = dcf_trend_df.rename(columns={"DCF": "Value"})
+            price_overlay_df = price_overlay_data.rename(columns={"Price": "Value"})
+            price_overlay_df["Type"] = "Market Price"
+            combined_trend_df["Type"] = "Historical DCF"
+
+            trend_combined = pd.concat([combined_trend_df, price_overlay_df], ignore_index=True)
+
+            super_chart = alt.Chart(trend_combined).mark_line(point=True).encode(
+                x=alt.X("Year:O", title="Year"),
+                y=alt.Y("Value:Q", title="Per Share Value ($)"),
+                color=alt.Color("Type:N"),
+                strokeDash='Type:N',
+                tooltip=["Ticker", "Year", "Type", "Value"]
+            ).facet(column="Ticker:N").properties(title="Historical DCF with Current Market Price", height=300)
+
+            st.altair_chart(super_chart, use_container_width=True)
+
             bar_chart = alt.Chart(chart_data).mark_bar().encode(
                 x=alt.X('Ticker:N', title="Ticker"),
                 y=alt.Y('Price:Q', title="Price ($)"),
