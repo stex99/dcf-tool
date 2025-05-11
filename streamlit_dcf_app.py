@@ -81,13 +81,9 @@ terminal_growth = st.sidebar.slider("Terminal Growth Rate (%)", 0.0, 6.0, 2.5 if
 st.sidebar.caption("📊 Terminal Growth Rate: Long-term FCF growth after forecast period.")
 st.sidebar.caption("📆 Projection Period: Number of years to forecast before terminal value.")
 
+uploaded_file = st.file_uploader("Upload Portfolio CSV", type=["csv"])
 
-uploaded_files = st.file_uploader("Upload One or More Portfolio CSVs", type=["csv"], accept_multiple_files=True)
-
-
-
-if not uploaded_files:
-
+if uploaded_file is None:
     st.info("No file uploaded. Using example portfolio.")
     uploaded_file = StringIO("""Ticker,Shares
 AAPL,20
@@ -97,37 +93,14 @@ NVDA,8
 JNJ,25
 """)
 
-
-portfolio_dfs = []
-for f in uploaded_files:
-    df = pd.read_csv(f)
-    df["Portfolio"] = f.name.replace(".csv", "")
-    portfolio_dfs.append(df)
-portfolio_df = pd.concat(portfolio_dfs, ignore_index=True)
-
+portfolio_df = pd.read_csv(uploaded_file)
 
 if 'Ticker' not in portfolio_df.columns or 'Shares' not in portfolio_df.columns:
     st.error("CSV must include 'Ticker' and 'Shares' columns.")
 else:
-    
-
-sort_method = st.sidebar.radio("Sort By", ["Valuation Gap", "Market Price", "DCF Value"], index=0)
-results_df = analyze_portfolio(portfolio_df, discount_rate, growth_rate, projection_years, terminal_growth)
-results_df["Valuation Gap ($)"] = results_df["DCF Value per Share ($)"] - results_df["Market Price ($)"]
-
-if sort_method == "Valuation Gap":
-    results_df = results_df.sort_values(by="Valuation Gap ($)", ascending=False)
-elif sort_method == "Market Price":
-    results_df = results_df.sort_values(by="Market Price ($)", ascending=False)
-elif sort_method == "DCF Value":
-    results_df = results_df.sort_values(by="DCF Value per Share ($)", ascending=False)
-
-results_df["Valuation Gap ($)"] = results_df["DCF Value per Share ($)"] - results_df["Market Price ($)"]
-results_df = results_df.sort_values(by="Valuation Gap ($)", ascending=False)
-
+    results_df = analyze_portfolio(portfolio_df, discount_rate, growth_rate, projection_years, terminal_growth)
     display_df = results_df.dropna()
     st.dataframe(display_df, use_container_width=True)
-    display_df["Portfolio"] = portfolio_df["Portfolio"]
 
     chart_df = display_df.melt(
         id_vars="Ticker",
@@ -140,14 +113,8 @@ results_df = results_df.sort_values(by="Valuation Gap ($)", ascending=False)
 
     base = alt.Chart(chart_df).encode(
         x=alt.X('Ticker:N', title='Stock'),
-        column=alt.Column("Portfolio:N", title="Portfolio"),
         y=alt.Y('Price:Q', title='Per Share Value ($)'),
-        
-color=alt.condition(
-    alt.datum.Type == "Market Price ($)",
-    alt.value("black"),
-    alt.Color("Type:N", scale=alt.Scale(scheme="blues"), legend=None)
-),
+        color=alt.Color('Type:N'),
         tooltip=['Ticker', 'Type', 'Price']
     )
 
