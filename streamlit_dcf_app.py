@@ -178,6 +178,69 @@ if uploaded_file:
                 column='Type:N'
             ).properties(height=300).configure_axis(labelAngle=0)
 
-            st.altair_chart(chart, use_container_width=True)
+            
+            # Enhanced Chart with historical DCF trend simulation
+            chart_df["Ticker"] = chart_df["Ticker"].astype(str)
+            st.subheader("📊 DCF vs. Market Price (with historical DCF estimate)")
+
+            
+            # Real Historical DCF Trend using yfinance financials
+            dcf_trend_data = []
+            for ticker in chart_df["Ticker"].unique():
+                stock = yf.Ticker(ticker)
+                try:
+                    cf = stock.cashflow
+                    shares_outstanding = stock.info.get("sharesOutstanding", None)
+                    if cf is not None and not cf.empty and shares_outstanding:
+                        years = list(cf.columns)[:5]  # Get up to 5 recent periods
+                        for year in years:
+                            ocf = cf.loc["Total Cash From Operating Activities"][year] if "Total Cash From Operating Activities" in cf.index else None
+                            capex = cf.loc["Capital Expenditures"][year] if "Capital Expenditures" in cf.index else None
+                            if ocf and capex:
+                                fcf = ocf + capex
+                                dcf_value = fcf * 1.05 / (0.10 - 0.05)  # constant growth DCF assumption
+                                dcf_per_share = dcf_value / shares_outstanding
+                                dcf_trend_data.append({
+                                    "Ticker": ticker,
+                                    "Year": str(year.year) if hasattr(year, 'year') else str(year),
+                                    "DCF": round(dcf_per_share, 2)
+                                })
+                except Exception as e:
+                    st.warning(f"Failed historical DCF for {ticker}: {e}")
+                    continue
+
+            dcf_trend_data = []
+            for ticker in chart_df["Ticker"].unique():
+                dcf = chart_df[chart_df["Ticker"] == ticker]["DCF Value per Share ($)"].values[0]
+                for i in range(-4, 1):  # 5 periods including current
+                    year = f"{2025+i}"
+                    factor = 1 - 0.05 * (4 - i)  # backward simulate ~5% YoY contraction
+                    dcf_trend_data.append({
+                        "Ticker": ticker,
+                        "Year": year,
+                        "DCF": round(dcf * factor, 2)
+                    })
+
+            dcf_trend_df = pd.DataFrame(dcf_trend_data)
+
+            line_chart = alt.Chart(dcf_trend_df).mark_line(point=True).encode(
+                x="Year:O",
+                y=alt.Y("DCF:Q", title="DCF Value ($)"),
+                color="Ticker:N",
+                tooltip=["Ticker", "Year", "DCF"]
+            ).properties(title="Simulated Historical DCF Trend", height=300)
+
+            st.altair_chart(line_chart, use_container_width=True)
+
+            # Updated Bar Chart with both DCF and Market Price
+            bar_chart = alt.Chart(chart_data).mark_bar().encode(
+                x=alt.X('Ticker:N', title="Ticker"),
+                y=alt.Y('Price:Q', title="Price ($)"),
+                color='Type:N',
+                tooltip=['Ticker', 'Type', 'Price']
+            ).properties(title="Current DCF vs. Market Price", height=300)
+
+            st.altair_chart(bar_chart, use_container_width=True)
+
     except Exception as e:
         st.error(f"Something went wrong: {e}")
