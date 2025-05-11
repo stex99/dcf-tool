@@ -192,7 +192,23 @@ if uploaded_file:
                     cf = stock.cashflow
                     shares_outstanding = stock.info.get("sharesOutstanding", None)
                     if cf is not None and not cf.empty and shares_outstanding:
-                        try:
+        try:
+            years = list(cf.columns)[:5]  # Get up to 5 recent periods
+            for year in years:
+                ocf = cf.loc["Total Cash From Operating Activities"][year] if "Total Cash From Operating Activities" in cf.index else None
+                capex = cf.loc["Capital Expenditures"][year] if "Capital Expenditures" in cf.index else None
+                if ocf and capex:
+                    fcf = ocf + capex
+                    dcf_value = fcf * 1.05 / (0.10 - 0.05)  # constant growth DCF assumption
+                    dcf_per_share = dcf_value / shares_outstanding
+                    dcf_trend_data.append({
+                        "Ticker": ticker,
+                        "Year": str(year.year) if hasattr(year, 'year') else str(year),
+                        "DCF": round(dcf_per_share, 2)
+                    })
+        except Exception as e:
+            st.warning(f"Failed historical DCF for {ticker}: {e}")
+            continue
                         years = list(cf.columns)[:5]  # Get up to 5 recent periods
                         for year in years:
                             ocf = cf.loc["Total Cash From Operating Activities"][year] if "Total Cash From Operating Activities" in cf.index else None
