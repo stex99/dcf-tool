@@ -90,7 +90,21 @@ discount_rate = st.sidebar.slider("Discount Rate (%)", 5.0, 15.0, 10.0, 0.25) / 
 growth_rate = st.sidebar.slider("Growth Rate (%)", 0.0, 20.0, 5.0, 0.25) / 100
 projection_years = st.sidebar.slider("Projection Period (Years)", 1, 10, 5, 1)
 
+
 uploaded_file = st.file_uploader("Upload Portfolio CSV", type=["csv"])
+
+# Fallback to sample CSV if nothing is uploaded
+if uploaded_file is None:
+    st.info("No file uploaded. Using example portfolio.")
+    from io import StringIO
+    uploaded_file = StringIO("""Ticker,Shares
+AAPL,20
+MSFT,15
+GOOGL,10
+NVDA,8
+JNJ,25
+""")
+
 
 if uploaded_file:
     try:
