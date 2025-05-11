@@ -4,13 +4,11 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import altair as alt
+from io import StringIO
 
 st.set_page_config(page_title="DCF Portfolio Analyzer", layout="wide")
 
-
-
-
-log_entries = []  # Global list to collect logs
+log_entries = []  # Global log collector
 
 def get_fcf(ticker):
     try:
@@ -53,80 +51,11 @@ def get_fcf(ticker):
         st.write(msg)
         log_entries.append(msg)
         return fcf
+
     except Exception as e:
         msg = f"Error retrieving FCF for {ticker}: {e}"
         st.warning(msg)
         log_entries.append(msg)
-        return None
-
-    try:
-        stock = yf.Ticker(ticker)
-        cf = stock.cashflow
-
-        if cf is None or cf.empty:
-            st.warning(f"No cash flow data available for {ticker}")
-            return None
-
-        st.write(f"{ticker} cashflow index: {list(cf.index)}")
-
-        def find_label(possible_labels):
-            for label in possible_labels:
-                for idx in cf.index:
-                    if label.lower() in idx.lower():
-                        return cf.loc[idx].iloc[0]
-            return None
-
-        ocf = find_label(['Total Cash From Operating Activities', 'Operating Cash Flow'])
-        capex = find_label(['Capital Expenditures', 'Capital Expenditures - Fixed Assets'])
-
-        if ocf is None or capex is None:
-            st.warning(f"{ticker} missing OCF or CapEx (labels tried)")
-            return None
-
-        fcf = ocf + capex
-        st.write(f"{ticker} FCF = {fcf}")
-        return fcf
-    except Exception as e:
-        st.warning(f"Error retrieving FCF for {ticker}: {e}")
-        return None
-
-    try:
-        stock = yf.Ticker(ticker)
-        cf = stock.cashflow
-
-        if cf is None or cf.empty:
-            st.warning(f"No cash flow data available for {ticker}")
-            return None
-
-        st.write(f"{ticker} cashflow index: {list(cf.index)}")
-
-        ocf = cf.loc['Total Cash From Operating Activities'].iloc[0] if 'Total Cash From Operating Activities' in cf.index else None
-        capex = cf.loc['Capital Expenditures'].iloc[0] if 'Capital Expenditures' in cf.index else None
-
-        if ocf is None or capex is None:
-            st.warning(f"{ticker} missing OCF or CapEx")
-            return None
-
-        fcf = ocf + capex
-        st.write(f"{ticker} FCF = {fcf}")
-        return fcf
-    except Exception as e:
-        st.warning(f"Error retrieving FCF for {ticker}: {e}")
-        return None
-
-    try:
-        stock = yf.Ticker(ticker)
-        cf = stock.cashflow
-        if cf is None or cf.empty:
-            st.warning(f"No cash flow data for {ticker}")
-            return None
-        ocf = cf.loc['Total Cash From Operating Activities'].iloc[0]
-        capex = cf.loc['Capital Expenditures'].iloc[0]
-        fcf = ocf + capex
-        st.write(f"{ticker} FCF: OCF={ocf}, CapEx={capex}, FCF={fcf}")
-        return fcf
-    except Exception as e:
-        st.warning(f"Error retrieving FCF for {ticker}: {e}")
         return None
 
 def dcf_valuation(fcf, discount_rate=0.10, growth_rate=0.05, projection_years=5):
@@ -165,9 +94,6 @@ def analyze_portfolio(df, discount_rate, growth_rate, projection_years):
         shares_outstanding = stock.info.get("sharesOutstanding", None)
         current_price = stock.info.get("currentPrice", None)
 
-        if not shares_outstanding:
-            st.warning(f"{ticker}: Missing 'sharesOutstanding' in yfinance data.")
-
         value_per_share = (intrinsic_value / shares_outstanding) if intrinsic_value and shares_outstanding else None
         holding_value = value_per_share * shares if value_per_share else None
 
@@ -196,13 +122,11 @@ discount_rate = st.sidebar.slider("Discount Rate (%)", 5.0, 15.0, 10.0, 0.25) / 
 growth_rate = st.sidebar.slider("Growth Rate (%)", 0.0, 20.0, 5.0, 0.25) / 100
 projection_years = st.sidebar.slider("Projection Period (Years)", 1, 10, 5, 1)
 
-
 uploaded_file = st.file_uploader("Upload Portfolio CSV", type=["csv"])
 
-# Fallback to sample CSV if nothing is uploaded
+# Fallback sample data
 if uploaded_file is None:
     st.info("No file uploaded. Using example portfolio.")
-    from io import StringIO
     uploaded_file = StringIO("""Ticker,Shares
 AAPL,20
 MSFT,15
@@ -210,7 +134,6 @@ GOOGL,10
 NVDA,8
 JNJ,25
 """)
-
 
 if uploaded_file:
     try:
@@ -223,17 +146,14 @@ if uploaded_file:
 
             display_df = results_df.fillna("N/A")
             st.dataframe(display_df, use_container_width=True)
-            
-st.subheader(f"💰 Estimated Total Portfolio Value: ${round(total_estimate, 2)}")
-
-# Add log download
-if log_entries:
-    log_output = "\n".join(log_entries)
-    st.download_button("📄 Download Log File", log_output, "dcf_log.txt")
-
+            st.subheader(f"💰 Estimated Total Portfolio Value: ${round(total_estimate, 2)}")
 
             csv_export = display_df.to_csv(index=False).encode("utf-8")
             st.download_button("📥 Download CSV", csv_export, "dcf_results.csv", "text/csv")
+
+            if log_entries:
+                log_output = "\n".join(log_entries)
+                st.download_button("📄 Download Log File", log_output, "dcf_log.txt")
 
             chart_df = display_df[
                 (display_df["DCF Value per Share ($)"] != "N/A") &
