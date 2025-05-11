@@ -250,7 +250,9 @@ if uploaded_file:
 
             trend_combined = pd.concat([combined_trend_df, price_overlay_df], ignore_index=True)
 
-            super_chart = alt.Chart(trend_combined).mark_line(point=True).encode(
+            
+line = alt.Chart(trend_combined).mark_line(point=True).encode(
+
                 x=alt.X("Year:O", title="Year"),
                 y=alt.Y("Value:Q", title="Per Share Value ($)"),
                 color=alt.Color("Type:N"),
@@ -258,7 +260,15 @@ if uploaded_file:
                 tooltip=["Ticker", "Year", "Type", "Value"]
             ).facet(column="Ticker:N").properties(title="Historical DCF with Current Market Price", height=300)
 
-            st.altair_chart(super_chart, use_container_width=True)
+            
+super_chart = alt.FacetChart(
+    data=trend_combined,
+    facet=alt.Facet("Ticker:N", columns=3),
+    spec=line.properties(height=300),
+    title="Historical DCF with Market Price Overlay"
+)
+st.altair_chart(super_chart, use_container_width=True)
+
 
             bar_chart = alt.Chart(chart_data).mark_bar().encode(
                 x=alt.X('Ticker:N', title="Ticker"),
