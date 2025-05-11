@@ -175,7 +175,11 @@ if uploaded_file:
                 tooltip=['Ticker', 'Type', 'Price']
             )
 
-            chart = base.mark_bar().properties(height=400)
+            
+    bars = base.transform_filter(alt.datum.Type == "DCF Value per Share ($)").mark_bar()
+    line = base.transform_filter(alt.datum.Type == "Market Price ($)").mark_line(point=True, strokeDash=[4,2])
+    chart = (bars + line).properties(height=400)
+    
             st.altair_chart(chart, use_container_width=True)
     except Exception as e:
         st.error(f"Something went wrong: {e}")
