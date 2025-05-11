@@ -8,53 +8,27 @@ from io import StringIO
 
 st.set_page_config(page_title="DCF Portfolio Analyzer", layout="wide")
 
-log_entries = []
-
 def get_fcf(ticker):
-    try:
-        stock = yf.Ticker(ticker)
-        cf = stock.cashflow
+    stock = yf.Ticker(ticker)
+    cf = stock.cashflow
 
-        if cf is None or cf.empty:
-            msg = f"No cash flow data available for {ticker}"
-            st.warning(msg)
-            log_entries.append(msg)
-            return None
-
-        def find_label(possible_labels):
-            for label in possible_labels:
-                for idx in cf.index:
-                    if label.lower() in idx.lower():
-                        return cf.loc[idx].iloc[0]
-            return None
-
-        ocf = find_label(['Total Cash From Operating Activities', 'Operating Cash Flow'])
-        capex = find_label(['Capital Expenditures', 'Capital Expenditures - Fixed Assets'])
-
-        if ocf is None or capex is None:
-            fallback_fcf = stock.info.get("freeCashflow", None)
-            if fallback_fcf:
-                msg = f"{ticker}: Used fallback FCF from summary: {fallback_fcf}"
-                st.info(msg)
-                log_entries.append(msg)
-                return fallback_fcf
-            else:
-                msg = f"{ticker} missing OCF or CapEx and no fallback FCF available"
-                st.warning(msg)
-                log_entries.append(msg)
-                return None
-
-        fcf = ocf + capex
-        msg = f"{ticker} FCF = {fcf}"
-        log_entries.append(msg)
-        return fcf
-
-    except Exception as e:
-        st.error(f"Something went wrong: {e}")
-        msg = f"Error retrieving FCF for {ticker}: {e}"
-        st.warning(msg)
-        log_entries.append(msg)
+    if cf is None or cf.empty:
         return None
+
+    def find_label(possible_labels):
+        for label in possible_labels:
+            for idx in cf.index:
+                if label.lower() in idx.lower():
+                    return cf.loc[idx].iloc[0]
+        return None
+
+    ocf = find_label(['Total Cash From Operating Activities', 'Operating Cash Flow'])
+    capex = find_label(['Capital Expenditures', 'Capital Expenditures - Fixed Assets'])
+
+    if ocf is None or capex is None:
+        return stock.info.get("freeCashflow", None)
+
+    return ocf + capex
 
 def dcf_valuation(fcf, discount_rate=0.10, growth_rate=0.05, projection_years=5):
     if fcf is None or fcf <= 0:
@@ -67,21 +41,8 @@ def dcf_valuation(fcf, discount_rate=0.10, growth_rate=0.05, projection_years=5)
     terminal_value_discounted = terminal_value / (1 + discount_rate) ** projection_years
     return npv + terminal_value_discounted
 
-def valuation_flag(dcf, market, tolerance=0.1):
-    if not dcf or not market:
-        return None
-    diff = (dcf - market) / market
-    if diff > tolerance:
-        return "Undervalued"
-    elif diff < -tolerance:
-        return "Overvalued"
-    else:
-        return "Fairly Valued"
-
 def analyze_portfolio(df, discount_rate, growth_rate, projection_years):
     results = []
-    total_value = 0
-
     for _, row in df.iterrows():
         ticker = row['Ticker']
         shares = row['Shares']
@@ -93,25 +54,15 @@ def analyze_portfolio(df, discount_rate, growth_rate, projection_years):
         current_price = stock.info.get("currentPrice", None)
 
         value_per_share = (intrinsic_value / shares_outstanding) if intrinsic_value and shares_outstanding else None
-        holding_value = value_per_share * shares if value_per_share else None
-
-        if holding_value:
-            total_value += holding_value
-
-        flag = valuation_flag(value_per_share, current_price)
 
         results.append({
             "Ticker": ticker,
             "Shares": shares,
             "DCF Value per Share ($)": round(value_per_share, 2) if value_per_share else None,
-            "Market Price ($)": round(current_price, 2) if current_price else None,
-            "Difference ($)": round((value_per_share - current_price), 2) if value_per_share and current_price else None,
-            "Upside/Downside (%)": round(((value_per_share - current_price) / current_price * 100), 2) if value_per_share and current_price else None,
-            "Valuation": flag,
-            "Estimated Holding Value ($)": round(holding_value, 2) if holding_value else None
+            "Market Price ($)": round(current_price, 2) if current_price else None
         })
 
-    return pd.DataFrame(results), total_value
+    return pd.DataFrame(results)
 
 st.title("📈 DCF Portfolio Analyzer")
 
@@ -132,56 +83,33 @@ NVDA,8
 JNJ,25
 """)
 
-if uploaded_file:
-    try:
-        portfolio_df = pd.read_csv(uploaded_file)
-        if 'Ticker' not in portfolio_df.columns or 'Shares' not in portfolio_df.columns:
-            st.error("CSV must include 'Ticker' and 'Shares' columns.")
-        else:
-            with st.spinner("Analyzing portfolio..."):
-                results_df, total_estimate = analyze_portfolio(portfolio_df, discount_rate, growth_rate, projection_years)
+portfolio_df = pd.read_csv(uploaded_file)
 
-            display_df = results_df.fillna("N/A")
-            st.dataframe(display_df, use_container_width=True)
-            st.subheader(f"💰 Estimated Total Portfolio Value: ${round(total_estimate, 2)}")
+if 'Ticker' not in portfolio_df.columns or 'Shares' not in portfolio_df.columns:
+    st.error("CSV must include 'Ticker' and 'Shares' columns.")
+else:
+    results_df = analyze_portfolio(portfolio_df, discount_rate, growth_rate, projection_years)
+    display_df = results_df.dropna()
+    st.dataframe(display_df, use_container_width=True)
 
-            csv_export = display_df.to_csv(index=False).encode("utf-8")
-            st.download_button("📥 Download CSV", csv_export, "dcf_results.csv", "text/csv")
+    chart_df = display_df.melt(
+        id_vars="Ticker",
+        value_vars=["DCF Value per Share ($)", "Market Price ($)"],
+        var_name="Type",
+        value_name="Price"
+    )
 
-            if log_entries:
-                log_output = "\n".join(log_entries)
-                st.download_button("📄 Download Log File", log_output, "dcf_log.txt")
+    st.subheader("📊 DCF vs. Market Price per Stock")
 
-            # Final single chart: DCF vs Market Price
-            chart_df = display_df[
-                (display_df["DCF Value per Share ($)"] != "N/A") &
-                (display_df["Market Price ($)"] != "N/A")
-            ].copy()
+    base = alt.Chart(chart_df).encode(
+        x=alt.X('Ticker:N', title='Stock'),
+        y=alt.Y('Price:Q', title='Per Share Value ($)'),
+        color=alt.Color('Type:N'),
+        tooltip=['Ticker', 'Type', 'Price']
+    )
 
-            chart_df["DCF Value per Share ($)"] = pd.to_numeric(chart_df["DCF Value per Share ($)"])
-            chart_df["Market Price ($)"] = pd.to_numeric(chart_df["Market Price ($)"])
-
-            chart_data = chart_df.melt(
-                id_vars="Ticker",
-                value_vars=["DCF Value per Share ($)", "Market Price ($)"],
-                var_name="Type",
-                value_name="Price"
-            )
-
-            st.subheader("📊 DCF vs. Market Price per Stock")
-            base = alt.Chart(chart_data).encode(
-                x=alt.X('Ticker:N', title='Stock'),
-                y=alt.Y('Price:Q', title='Per Share Value ($)'),
-                color=alt.Color('Type:N', title='Metric'),
-                tooltip=['Ticker', 'Type', 'Price']
-            )
-
-            
     bars = base.transform_filter(alt.datum.Type == "DCF Value per Share ($)").mark_bar()
-    line = base.transform_filter(alt.datum.Type == "Market Price ($)").mark_line(point=True, strokeDash=[4,2])
+    line = base.transform_filter(alt.datum.Type == "Market Price ($)").mark_line(point=True, strokeDash=[4, 2])
     chart = (bars + line).properties(height=400)
-    
-            st.altair_chart(chart, use_container_width=True)
-    except Exception as e:
-        st.error(f"Something went wrong: {e}")
-        st.error(f"Something went wrong: {e}")
+
+    st.altair_chart(chart, use_container_width=True)
