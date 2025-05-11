@@ -21,8 +21,6 @@ def get_fcf(ticker):
             log_entries.append(msg)
             return None
 
-        st.write(f"{ticker} cashflow index: {list(cf.index)}")
-
         def find_label(possible_labels):
             for label in possible_labels:
                 for idx in cf.index:
@@ -48,7 +46,6 @@ def get_fcf(ticker):
 
         fcf = ocf + capex
         msg = f"{ticker} FCF = {fcf}"
-        st.write(msg)
         log_entries.append(msg)
         return fcf
 
@@ -154,8 +151,7 @@ if uploaded_file:
                 log_output = "\n".join(log_entries)
                 st.download_button("📄 Download Log File", log_output, "dcf_log.txt")
 
-            
-            # Clean chart: DCF vs Market Price (side-by-side bars)
+            # Final single chart: DCF vs Market Price
             chart_df = display_df[
                 (display_df["DCF Value per Share ($)"] != "N/A") &
                 (display_df["Market Price ($)"] != "N/A")
@@ -180,5 +176,6 @@ if uploaded_file:
             )
 
             chart = base.mark_bar().properties(height=400)
-
             st.altair_chart(chart, use_container_width=True)
+    except Exception as e:
+        st.error(f"Something went wrong: {e}")
